@@ -7,9 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"os/exec"
-	"strings"
 
+	"github.com/vishvananda/netlink"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
@@ -21,6 +20,9 @@ const ifaceName = "tether0"
 // Requires cap_net_admin on the binary:
 //
 //	sudo setcap cap_net_admin+ep /usr/local/bin/tether
+//
+// All network configuration is done via netlink (in-process), so no
+// child processes are spawned and cap_net_admin is used directly.
 type LinuxTunnel struct {
 	dev  *device.Device
 	name string
@@ -33,12 +35,11 @@ func New() Tunnel {
 
 func (t *LinuxTunnel) Name() string { return t.name }
 
-// Up creates the tether0 TUN interface, starts the WireGuard device, and
-// configures the VPN IP address and routing.
 func (t *LinuxTunnel) Up(privateKeyHex string, listenPort int, vpnCIDR string, mtu int) error {
+	// Create the kernel TUN device.
 	tunDev, err := tun.CreateTUN(ifaceName, mtu)
 	if err != nil {
-		return fmt.Errorf("tunnel: create TUN %s: %w (is cap_net_admin set?)", ifaceName, err)
+		return fmt.Errorf("tunnel: create TUN %s: %w (hint: run `tether setup` for required setcap command)", ifaceName, err)
 	}
 	t.name = ifaceName
 
@@ -55,35 +56,43 @@ func (t *LinuxTunnel) Up(privateKeyHex string, listenPort int, vpnCIDR string, m
 		return fmt.Errorf("tunnel: bring up device: %w", err)
 	}
 
-	// Configure the OS interface: assign IP, bring link up, add VPN route.
-	cmds := [][]string{
-		{"ip", "addr", "add", vpnCIDR, "dev", ifaceName},
-		{"ip", "link", "set", ifaceName, "up"},
+	// Configure the interface via netlink (runs in-process, uses cap_net_admin).
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		t.dev.Close()
+		return fmt.Errorf("tunnel: find interface %s: %w", ifaceName, err)
 	}
-	// Add a host route for every peer's VPN /32.
-	// The peer's IP is inferred from the subnet: 100.64.0.x/32 where x ≠ ours.
-	// Routes are added per-peer in SetPeer; the commands above just bring the link up.
-	for _, args := range cmds {
-		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
-			t.dev.Close()
-			return fmt.Errorf("tunnel: %v: %s: %w", args, out, err)
-		}
+
+	addr, err := netlink.ParseAddr(vpnCIDR)
+	if err != nil {
+		t.dev.Close()
+		return fmt.Errorf("tunnel: parse VPN CIDR %s: %w", vpnCIDR, err)
 	}
+	if err := netlink.AddrAdd(link, addr); err != nil {
+		t.dev.Close()
+		return fmt.Errorf("tunnel: assign VPN IP: %w", err)
+	}
+
+	if err := netlink.LinkSetUp(link); err != nil {
+		t.dev.Close()
+		return fmt.Errorf("tunnel: bring link up: %w", err)
+	}
+
 	return nil
 }
 
-// Down tears down the WireGuard device and removes the interface.
 func (t *LinuxTunnel) Down() error {
 	if t.dev != nil {
 		t.dev.Down()
 		t.dev.Close()
 	}
-	// Best-effort cleanup; ignore errors (interface may already be gone).
-	exec.Command("ip", "link", "del", ifaceName).Run()
+	// Best-effort cleanup.
+	if link, err := netlink.LinkByName(ifaceName); err == nil {
+		netlink.LinkDel(link)
+	}
 	return nil
 }
 
-// SetPeer adds or updates a WireGuard peer and installs a host route for it.
 func (t *LinuxTunnel) SetPeer(pubkeyBase64, allowedIP, endpoint, pskBase64 string) error {
 	pubkeyHex, err := b64ToHex(pubkeyBase64)
 	if err != nil {
@@ -97,29 +106,37 @@ func (t *LinuxTunnel) SetPeer(pubkeyBase64, allowedIP, endpoint, pskBase64 strin
 		}
 	}
 
-	ipc := "public_key=" + pubkeyHex + "\n" + buildPeerIPC(pubkeyHex, allowedIP, endpoint, pskHex, false)
+	ipc := buildPeerIPC(pubkeyHex, allowedIP, endpoint, pskHex, false)
 	if err := t.dev.IpcSet(ipc); err != nil {
 		return fmt.Errorf("tunnel: set peer: %w", err)
 	}
 
-	// Install a host route so the OS knows to send traffic for this peer's
-	// VPN IP through our tether0 interface.
-	peerHost := strings.Split(allowedIP, "/")[0] + "/32"
-	out, err := exec.Command("ip", "route", "replace", peerHost, "dev", ifaceName).CombinedOutput()
+	// Add a host route for the peer's VPN IP via this interface.
+	link, err := netlink.LinkByName(ifaceName)
 	if err != nil {
-		return fmt.Errorf("tunnel: add route %s: %s: %w", peerHost, out, err)
+		return fmt.Errorf("tunnel: find interface: %w", err)
+	}
+	_, dst, err := net.ParseCIDR(allowedIP)
+	if err != nil {
+		return fmt.Errorf("tunnel: parse peer CIDR %s: %w", allowedIP, err)
+	}
+	route := &netlink.Route{
+		LinkIndex: link.Attrs().Index,
+		Dst:       dst,
+	}
+	// RouteReplace = add if not exists, update if exists.
+	if err := netlink.RouteReplace(route); err != nil {
+		return fmt.Errorf("tunnel: add route %s: %w", allowedIP, err)
 	}
 	return nil
 }
 
-// RemovePeer removes a WireGuard peer by public key.
 func (t *LinuxTunnel) RemovePeer(pubkeyBase64 string) error {
 	pubkeyHex, err := b64ToHex(pubkeyBase64)
 	if err != nil {
 		return fmt.Errorf("tunnel: decode pubkey: %w", err)
 	}
-	ipc := buildPeerIPC(pubkeyHex, "", "", "", true)
-	return t.dev.IpcSet(ipc)
+	return t.dev.IpcSet(buildPeerIPC(pubkeyHex, "", "", "", true))
 }
 
 func b64ToHex(b64 string) (string, error) {
@@ -130,8 +147,6 @@ func b64ToHex(b64 string) (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-// PickListenAddr returns a *net.UDPAddr suitable for binding WireGuard's port.
-// This is used by the agent to bind the socket before passing it to the tunnel.
 func PickListenAddr(port int) *net.UDPAddr {
 	return &net.UDPAddr{Port: port}
 }

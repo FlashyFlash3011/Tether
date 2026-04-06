@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -104,12 +105,13 @@ func Run(cfgPath string) error {
 }
 
 // loadSecret retrieves a base64-encoded secret from the keystore.
+// Trims whitespace so copy-paste with trailing newlines doesn't break base64 decoding.
 func loadSecret(ks keystore.Store, key string) (string, error) {
 	raw, err := ks.Get(key)
 	if err != nil {
 		return "", err
 	}
-	return string(raw), nil
+	return strings.TrimSpace(string(raw)), nil
 }
 
 // StoreSecret is called by CLI subcommands that write to the keystore.

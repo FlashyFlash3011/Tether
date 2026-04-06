@@ -98,7 +98,7 @@ func (t *DarwinTunnel) SetPeer(pubkeyBase64, allowedIP, endpoint, pskBase64 stri
 			return fmt.Errorf("tunnel: decode PSK: %w", err)
 		}
 	}
-	ipc := "public_key=" + pubkeyHex + "\n" + buildPeerIPC(pubkeyHex, allowedIP, endpoint, pskHex, false)
+	ipc := buildPeerIPC(pubkeyHex, allowedIP, endpoint, pskHex, false)
 	return t.dev.IpcSet(ipc)
 }
 

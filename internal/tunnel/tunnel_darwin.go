@@ -38,7 +38,7 @@ func (t *DarwinTunnel) Up(privateKeyHex string, listenPort int, vpnCIDR string, 
 		return fmt.Errorf("tunnel: get utun name: %w", err)
 	}
 
-	logger := device.NewLogger(device.LogLevelError, "tether: ")
+	logger := device.NewLogger(device.LogLevelVerbose, "wg: ")
 	t.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
 
 	ipc := fmt.Sprintf("private_key=%s\nlisten_port=%d\n", privateKeyHex, listenPort)

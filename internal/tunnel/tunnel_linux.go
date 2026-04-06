@@ -41,7 +41,7 @@ func (t *LinuxTunnel) Up(privateKeyHex string, listenPort int, vpnCIDR string, m
 	}
 	t.name = ifaceName
 
-	logger := device.NewLogger(device.LogLevelVerbose, "wg: ")
+	logger := device.NewLogger(device.LogLevelError, "wg: ")
 	t.dev = device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
 
 	ipc := fmt.Sprintf("private_key=%s\nlisten_port=%d\n", privateKeyHex, listenPort)

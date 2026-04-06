@@ -75,6 +75,17 @@ func Run(cfgPath string) error {
 		tun.Down()
 	}()
 
+	// ── Start relay server (PC/Linux only; no-op on Mac/Darwin) ──────────────
+	relayURL, stopRelay, err := startRelayServer(cfg.WireGuard.ListenPort)
+	if err != nil {
+		log.Printf("tether: warning: relay server failed to start: %v", err)
+		relayURL = ""
+		stopRelay = func() {}
+	} else if relayURL != "" {
+		log.Printf("tether: relay server up at %s", relayURL)
+		defer stopRelay()
+	}
+
 	// ── Register with coordination Worker ─────────────────────────────────────
 	apiToken, err := base64.StdEncoding.DecodeString(apiTokenB64)
 	if err != nil {
@@ -82,7 +93,7 @@ func Run(cfgPath string) error {
 	}
 	apiClient := api.New(cfg.Server.URL, cfg.Node.ID, apiToken)
 
-	if err := apiClient.Register(pubKey.Base64(), cfg.WireGuard.ListenPort); err != nil {
+	if err := apiClient.Register(pubKey.Base64(), cfg.WireGuard.ListenPort, relayURL); err != nil {
 		return fmt.Errorf("agent: register: %w", err)
 	}
 	log.Printf("tether: registered with %s", cfg.Server.URL)
@@ -92,7 +103,7 @@ func Run(cfgPath string) error {
 	if err != nil {
 		syncInterval = 30 * time.Second
 	}
-	syncer := newPeerSyncer(apiClient, tun, pskB64, syncInterval, pubKey.Base64(), cfg.WireGuard.ListenPort)
+	syncer := newPeerSyncer(apiClient, tun, pskB64, syncInterval, pubKey.Base64(), cfg.WireGuard.ListenPort, relayURL)
 	stop := make(chan struct{})
 	go syncer.Run(stop)
 

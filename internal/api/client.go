@@ -17,7 +17,8 @@ type PeerInfo struct {
 	NodeID   string `json:"node_id"`
 	Pubkey   string `json:"pubkey"`
 	VPNAddr  string `json:"vpn_addr"`
-	Endpoint string `json:"endpoint"` // "ip:port"
+	Endpoint string `json:"endpoint"`  // "ip:port"
+	RelayURL string `json:"relay_url"` // cloudflared tunnel URL (empty if no relay)
 }
 
 // Client talks to the coordination Worker.
@@ -41,12 +42,14 @@ func New(serverURL, nodeID string, secret []byte) *Client {
 	}
 }
 
-// Register POSTs this node's public key and listen port to the Worker.
-// The Worker derives the external endpoint as CF-Connecting-IP:listenPort.
-func (c *Client) Register(pubkeyBase64 string, listenPort int) error {
+// Register POSTs this node's public key, listen port, and optional relay URL
+// to the coordination Worker. relayURL is the cloudflared public URL for the
+// relay server (non-empty on the PC side, empty on the Mac side).
+func (c *Client) Register(pubkeyBase64 string, listenPort int, relayURL string) error {
 	body, _ := json.Marshal(map[string]any{
 		"pubkey":      pubkeyBase64,
 		"listen_port": listenPort,
+		"relay_url":   relayURL,
 	})
 	resp, err := c.do(http.MethodPost, "/register", body)
 	if err != nil {

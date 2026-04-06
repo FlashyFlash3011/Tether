@@ -3,8 +3,6 @@
 package tunnel
 
 import (
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"os/exec"
@@ -86,14 +84,22 @@ func (t *DarwinTunnel) Down() error {
 	return nil
 }
 
+func (t *DarwinTunnel) UpdateEndpoint(pubkeyBase64, endpoint string) error {
+	return updateEndpointOnDevice(t.dev, pubkeyBase64, endpoint)
+}
+
+func (t *DarwinTunnel) LastHandshake(pubkeyBase64 string) (int64, error) {
+	return lastHandshakeFromDevice(t.dev, pubkeyBase64)
+}
+
 func (t *DarwinTunnel) SetPeer(pubkeyBase64, allowedIP, endpoint, pskBase64 string) error {
-	pubkeyHex, err := b64ToHex(pubkeyBase64)
+	pubkeyHex, err := keyToHex(pubkeyBase64)
 	if err != nil {
 		return fmt.Errorf("tunnel: decode pubkey: %w", err)
 	}
 	var pskHex string
 	if pskBase64 != "" {
-		pskHex, err = b64ToHex(pskBase64)
+		pskHex, err = keyToHex(pskBase64)
 		if err != nil {
 			return fmt.Errorf("tunnel: decode PSK: %w", err)
 		}
@@ -103,19 +109,11 @@ func (t *DarwinTunnel) SetPeer(pubkeyBase64, allowedIP, endpoint, pskBase64 stri
 }
 
 func (t *DarwinTunnel) RemovePeer(pubkeyBase64 string) error {
-	pubkeyHex, err := b64ToHex(pubkeyBase64)
+	pubkeyHex, err := keyToHex(pubkeyBase64)
 	if err != nil {
 		return fmt.Errorf("tunnel: decode pubkey: %w", err)
 	}
 	return t.dev.IpcSet(buildPeerIPC(pubkeyHex, "", "", "", true))
-}
-
-func b64ToHex(b64 string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
 }
 
 // peerVPNIP returns the expected peer IP for a given node's VPN IP.

@@ -105,6 +105,7 @@ interface PeerRecord {
   pubkey: string;
   vpnAddr: string;
   endpoint: string;   // "ip:port" (CF-Connecting-IP + listen_port)
+  relayUrl: string;   // cloudflared tunnel URL for relay fallback (empty if none)
   lastSeen: number;   // Unix ms
 }
 
@@ -141,7 +142,7 @@ async function handleRegister(req: Request, env: Env): Promise<Response> {
   const nodeId = await auth(req, env);
   if (nodeId instanceof Response) return nodeId;
 
-  interface RegisterBody { pubkey: string; listen_port: number }
+  interface RegisterBody { pubkey: string; listen_port: number; relay_url?: string }
   let body: RegisterBody;
   try {
     body = await req.json() as RegisterBody;
@@ -167,6 +168,7 @@ async function handleRegister(req: Request, env: Env): Promise<Response> {
     pubkey: body.pubkey,
     vpnAddr: VPN_ADDR[nodeId] ?? "",
     endpoint,
+    relayUrl: body.relay_url ?? "",
     lastSeen: Date.now(),
   });
 
@@ -182,10 +184,11 @@ async function handleGetPeers(req: Request, env: Env): Promise<Response> {
   const peers = all
     .filter((p) => p.nodeId !== nodeId)
     .map((p) => ({
-      node_id:  p.nodeId,
-      pubkey:   p.pubkey,
-      vpn_addr: p.vpnAddr,
-      endpoint: p.endpoint,
+      node_id:   p.nodeId,
+      pubkey:    p.pubkey,
+      vpn_addr:  p.vpnAddr,
+      endpoint:  p.endpoint,
+      relay_url: p.relayUrl ?? "",
     }));
 
   return Response.json({ peers });

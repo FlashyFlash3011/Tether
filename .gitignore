@@ -1,0 +1,7 @@
+dist/
+*.enc
+*.key
+config.toml
+go.sum
+node_modules/
+worker/.wrangler/

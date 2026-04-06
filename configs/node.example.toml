@@ -1,0 +1,24 @@
+# Tether node configuration
+# Copy to ~/.config/tether/config.toml (Linux) or
+#           ~/Library/Application Support/Tether/config.toml (macOS)
+# and fill in the values below.
+#
+# Secrets (private key, api-token, wg-psk) are stored in the keystore,
+# NOT in this file. Use:
+#   tether keygen                        → stores private key
+#   tether keystore set api-token <val>  → stores API token
+#   tether keystore set wg-psk <val>     → stores PSK
+
+[node]
+id     = "pc"          # Change to "mac" on the MacBook
+vpn_ip = "100.64.0.1/32"  # PC gets .1, Mac gets .2
+mtu    = 1420
+
+[server]
+url = "https://tether-coord.REPLACE_ME.workers.dev"
+
+[wg]
+listen_port = 51820
+
+[sync]
+interval = "30s"

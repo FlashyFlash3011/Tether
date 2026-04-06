@@ -1,0 +1,23 @@
+[Unit]
+Description=Tether VPN Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ethan
+ExecStart=/usr/local/bin/tether up
+Restart=on-failure
+RestartSec=5s
+
+# Inject keystore passphrase securely via systemd credential.
+# Store with: sudo systemd-creds encrypt --name=tether-pass - /etc/credstore/tether-pass
+# Then uncomment:
+# LoadCredential=tether-pass:/etc/credstore/tether-pass
+# ExecStart=/bin/sh -c 'TETHER_KEYSTORE_PASSPHRASE=$(systemd-creds cat tether-pass) exec /usr/local/bin/tether up'
+
+# Simple alternative: set the passphrase directly (less secure, fine for personal use)
+# Environment=TETHER_KEYSTORE_PASSPHRASE=your-passphrase-here
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+name = "tether-coord"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "PEERS"
+# Replace with your actual KV namespace ID after running:
+#   npx wrangler kv:namespace create PEERS
+id = "9849d6520f5b4cc4a48e4b08dcc8e687"
+
+# Secrets (set via `wrangler secret put`):
+#   TOKEN_PC   — 32-byte base64 HMAC secret for the PC node
+#   TOKEN_MAC  — 32-byte base64 HMAC secret for the Mac node

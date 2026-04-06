@@ -92,7 +92,7 @@ func Run(cfgPath string) error {
 	if err != nil {
 		syncInterval = 30 * time.Second
 	}
-	syncer := newPeerSyncer(apiClient, tun, pskB64, syncInterval)
+	syncer := newPeerSyncer(apiClient, tun, pskB64, syncInterval, pubKey.Base64(), cfg.WireGuard.ListenPort)
 	stop := make(chan struct{})
 	go syncer.Run(stop)
 

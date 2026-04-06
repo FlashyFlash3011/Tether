@@ -12,22 +12,27 @@ import (
 type peerState map[string]api.PeerInfo
 
 // PeerSyncer periodically fetches the peer list from the Worker and applies
-// any changes (add/update/remove) to the WireGuard tunnel.
+// any changes (add/update/remove) to the WireGuard tunnel. It also re-registers
+// this node on every sync tick to keep the KV entry alive (TTL = 5 min, sync = 30s).
 type PeerSyncer struct {
-	client   *api.Client
-	tun      tunnel.Tunnel
-	psk      string // base64 PSK shared with all peers
-	interval time.Duration
-	current  peerState
+	client     *api.Client
+	tun        tunnel.Tunnel
+	psk        string // base64 PSK shared with all peers
+	interval   time.Duration
+	current    peerState
+	pubkey     string // this node's WireGuard public key (base64)
+	listenPort int
 }
 
-func newPeerSyncer(client *api.Client, tun tunnel.Tunnel, psk string, interval time.Duration) *PeerSyncer {
+func newPeerSyncer(client *api.Client, tun tunnel.Tunnel, psk string, interval time.Duration, pubkey string, listenPort int) *PeerSyncer {
 	return &PeerSyncer{
-		client:   client,
-		tun:      tun,
-		psk:      psk,
-		interval: interval,
-		current:  make(peerState),
+		client:     client,
+		tun:        tun,
+		psk:        psk,
+		interval:   interval,
+		current:    make(peerState),
+		pubkey:     pubkey,
+		listenPort: listenPort,
 	}
 }
 
@@ -48,6 +53,11 @@ func (s *PeerSyncer) Run(stop <-chan struct{}) {
 }
 
 func (s *PeerSyncer) sync() {
+	// Re-register on every tick to keep the KV entry alive (TTL = 5 min).
+	if err := s.client.Register(s.pubkey, s.listenPort); err != nil {
+		log.Printf("sync: re-register: %v", err)
+	}
+
 	peers, err := s.client.GetPeers()
 	if err != nil {
 		log.Printf("sync: get peers: %v", err)
